@@ -1,0 +1,549 @@
+<!DOCTYPE html>
+<html lang="vi">
+<head>
+<meta charset="UTF-8">
+<meta name="viewport" content="width=device-width, initial-scale=1.0">
+<title>SQL/CSV → MongoDB Converter</title>
+<style>
+  :root{
+    --bg:#0d1117;
+    --panel:#141b26;
+    --panel-2:#1a2333;
+    --border:#26324a;
+    --text:#dbe4f0;
+    --muted:#7c8aa5;
+    --accent:#4ea8de;
+    --accent-2:#5ee6a0;
+    --mono: 'JetBrains Mono','Consolas','SFMono-Regular',monospace;
+  }
+  *{box-sizing:border-box;}
+  body{
+    margin:0;
+    background:linear-gradient(180deg,#0a0f18,#0d1117 40%);
+    color:var(--text);
+    font-family:'Segoe UI',system-ui,sans-serif;
+    min-height:100vh;
+  }
+  header{
+    padding:22px 28px 14px;
+    border-bottom:1px solid var(--border);
+  }
+  header h1{
+    margin:0;
+    font-size:20px;
+    font-weight:600;
+    letter-spacing:.3px;
+    display:flex;
+    align-items:center;
+    gap:10px;
+  }
+  header h1 .tag{
+    font-family:var(--mono);
+    font-size:11px;
+    color:#0d1117;
+    background:var(--accent-2);
+    padding:2px 8px;
+    border-radius:4px;
+    font-weight:700;
+  }
+  header p{
+    margin:6px 0 0;
+    color:var(--muted);
+    font-size:13px;
+  }
+  header p code{color:var(--accent);}
+  .layout{
+    display:grid;
+    grid-template-columns:1fr 1fr;
+    gap:1px;
+    background:var(--border);
+    min-height:calc(100vh - 96px);
+  }
+  @media (max-width: 900px){
+    .layout{grid-template-columns:1fr;}
+  }
+  .pane{
+    background:var(--panel);
+    display:flex;
+    flex-direction:column;
+  }
+  .pane-head{
+    padding:12px 16px;
+    display:flex;
+    align-items:center;
+    justify-content:space-between;
+    border-bottom:1px solid var(--border);
+    gap:8px;
+    flex-wrap:wrap;
+  }
+  .pane-head span{
+    font-size:12px;
+    text-transform:uppercase;
+    letter-spacing:1px;
+    color:var(--muted);
+    font-weight:600;
+  }
+  .pane-head .btns{display:flex;gap:8px;}
+  textarea{
+    flex:1;
+    resize:none;
+    border:none;
+    outline:none;
+    background:var(--panel);
+    color:var(--text);
+    font-family:var(--mono);
+    font-size:13px;
+    line-height:1.55;
+    padding:16px;
+    min-height:420px;
+  }
+  textarea::placeholder{color:#3d4a63;}
+  .out-wrap{
+    position:relative;
+    flex:1;
+    display:flex;
+  }
+  pre#output{
+    flex:1;
+    margin:0;
+    padding:16px;
+    overflow:auto;
+    font-family:var(--mono);
+    font-size:13px;
+    line-height:1.55;
+    white-space:pre;
+    background:var(--panel-2);
+  }
+  .k{color:#8ab4f8;}
+  .s{color:#ce9178;}
+  .n{color:#b5cea8;}
+  .d{color:var(--accent-2);}
+  .p{color:#dbe4f0;}
+  .err{color:#f27979;padding:16px;font-family:var(--mono);font-size:13px;white-space:pre-wrap;}
+  .btn{
+    appearance:none;
+    border:1px solid var(--border);
+    background:var(--panel-2);
+    color:var(--text);
+    padding:7px 14px;
+    border-radius:6px;
+    font-size:13px;
+    cursor:pointer;
+    font-weight:500;
+    transition:.15s;
+  }
+  .btn:hover{border-color:var(--accent);color:var(--accent);}
+  .btn.primary{
+    background:var(--accent);
+    border-color:var(--accent);
+    color:#06131f;
+    font-weight:700;
+  }
+  .btn.primary:hover{background:#68b9e8;color:#06131f;}
+  .toolbar{
+    padding:12px 16px;
+    display:flex;
+    gap:10px;
+    border-top:1px solid var(--border);
+    align-items:center;
+    flex-wrap:wrap;
+  }
+  .toolbar .opt{
+    display:flex;
+    align-items:center;
+    gap:6px;
+    font-size:12px;
+    color:var(--muted);
+  }
+  .toolbar input[type="text"]{
+    background:var(--panel-2);
+    border:1px solid var(--border);
+    color:var(--text);
+    font-family:var(--mono);
+    font-size:12px;
+    padding:6px 8px;
+    border-radius:6px;
+    width:150px;
+  }
+  .status{
+    font-size:12px;
+    color:var(--muted);
+    margin-left:auto;
+  }
+  .status.ok{color:var(--accent-2);}
+  .status.bad{color:#f27979;}
+  .mode-badge{
+    font-family:var(--mono);
+    font-size:11px;
+    padding:2px 8px;
+    border-radius:4px;
+    border:1px solid var(--border);
+    color:var(--muted);
+  }
+  .mode-badge.sql{color:var(--accent);border-color:var(--accent);}
+  .mode-badge.csv{color:var(--accent-2);border-color:var(--accent-2);}
+</style>
+</head>
+<body>
+
+<header>
+  <h1>SQL / CSV <span style="color:var(--muted);font-weight:400">→</span> MongoDB <span class="tag">insertMany</span></h1>
+  <p>Dán câu lệnh <code>INSERT INTO ... VALUES (...)</code> HOẶC dữ liệu CSV thường (dòng đầu là tên cột). Tool tự nhận diện định dạng.</p>
+</header>
+
+<div class="layout">
+  <div class="pane">
+    <div class="pane-head">
+      <span>Input</span>
+      <div class="btns">
+        <button class="btn" id="loadSampleSQL">Ví dụ SQL</button>
+        <button class="btn" id="loadSampleCSV">Ví dụ CSV</button>
+      </div>
+    </div>
+    <textarea id="sqlInput" placeholder="INSERT INTO projects (col1, col2, ...) VALUES (...), (...);
+
+hoặc dán CSV:
+projectId,projectName,startDate,budget
+P001,He thong dao tao,2026-01-10,500000000"></textarea>
+    <div class="toolbar">
+      <label class="opt"><input type="checkbox" id="autoDate" checked> Tự nhận diện ngày (YYYY-MM-DD) → new Date()</label>
+      <label class="opt"><input type="checkbox" id="prettyKeys" checked> Bỏ dấu ngoặc kép ở tên trường hợp lệ</label>
+      <label class="opt">Collection (khi input là CSV):
+        <input type="text" id="collectionName" placeholder="collection">
+      </label>
+      <button class="btn primary" id="convertBtn" style="margin-left:auto">Chuyển đổi →</button>
+    </div>
+  </div>
+
+  <div class="pane">
+    <div class="pane-head">
+      <span>MongoDB Output</span>
+      <div class="btns" style="align-items:center;">
+        <span class="mode-badge" id="modeBadge">—</span>
+        <button class="btn" id="copyBtn">Sao chép</button>
+      </div>
+    </div>
+    <div class="out-wrap">
+      <pre id="output" placeholder="Kết quả sẽ hiện ở đây..."></pre>
+    </div>
+    <div class="toolbar">
+      <span class="status" id="status">Sẵn sàng.</span>
+    </div>
+  </div>
+</div>
+
+<script>
+const sampleSQL = document.getElementById('sqlInput');
+const output = document.getElementById('output');
+const statusEl = document.getElementById('status');
+const modeBadge = document.getElementById('modeBadge');
+
+const SAMPLE_SQL = `INSERT INTO projects (
+  projectId, projectName, startDate, endDate, budget, status, managerId, members
+) VALUES 
+('P001', 'Hệ thống quản lý đào tạo', '2026-01-10', '2026-10-30', 500000000, 'In Progress', 'E003', 
+ '[{"employeeId": "E003", "role": "Project Manager", "joinDate": "2026-01-10", "hoursPerWeek": 30}, {"employeeId": "E001", "role": "Backend Developer", "joinDate": "2026-01-15", "hoursPerWeek": 25}]'),
+('P002', 'Cổng tuyển dụng trực tuyến', '2026-03-01', '2026-12-15', 320000000, 'In Progress', 'E001', 
+ '[{"employeeId": "E001", "role": "Project Manager", "joinDate": "2026-03-01", "hoursPerWeek": 25}]');`;
+
+const SAMPLE_CSV = `projectId,projectName,startDate,endDate,budget,status,managerId,members
+P001,Hệ thống quản lý đào tạo,2026-01-10,2026-10-30,500000000,In Progress,E003,"[{""employeeId"": ""E003"", ""role"": ""Project Manager"", ""joinDate"": ""2026-01-10"", ""hoursPerWeek"": 30}]"
+P002,Cổng tuyển dụng trực tuyến,2026-03-01,2026-12-15,320000000,In Progress,E001,"[{""employeeId"": ""E001"", ""role"": ""Project Manager"", ""joinDate"": ""2026-03-01"", ""hoursPerWeek"": 25}]"`;
+
+document.getElementById('loadSampleSQL').addEventListener('click', () => {
+  sampleSQL.value = SAMPLE_SQL;
+});
+document.getElementById('loadSampleCSV').addEventListener('click', () => {
+  sampleSQL.value = SAMPLE_CSV;
+  document.getElementById('collectionName').value = 'projects';
+});
+
+/* ---------- Tokenizer / splitter helpers (SQL mode) ---------- */
+
+// Split top-level items by commas, respecting (), [], {}, '...' and "..." nesting
+function splitTopLevel(str, sep=',') {
+  const parts = [];
+  let depth = 0, inS = false, inD = false, cur = '';
+  for (let i = 0; i < str.length; i++) {
+    const c = str[i];
+    if (inS) {
+      cur += c;
+      if (c === "'" && str[i+1] === "'") { cur += str[++i]; continue; } // escaped '' 
+      if (c === "'") inS = false;
+      continue;
+    }
+    if (inD) {
+      cur += c;
+      if (c === '"' && str[i-1] !== '\\') inD = false;
+      continue;
+    }
+    if (c === "'") { inS = true; cur += c; continue; }
+    if (c === '"') { inD = true; cur += c; continue; }
+    if ('([{'.includes(c)) { depth++; cur += c; continue; }
+    if (')]}'.includes(c)) { depth--; cur += c; continue; }
+    if (c === sep && depth === 0) { parts.push(cur); cur = ''; continue; }
+    cur += c;
+  }
+  if (cur.trim() !== '') parts.push(cur);
+  return parts.map(s => s.trim());
+}
+
+// Extract all top-level (...) tuples after VALUES
+function extractTuples(str) {
+  const tuples = [];
+  let depth = 0, inS = false, inD = false, cur = '';
+  let started = false;
+  for (let i = 0; i < str.length; i++) {
+    const c = str[i];
+    if (inS) {
+      cur += c;
+      if (c === "'" && str[i+1] === "'") { cur += str[++i]; continue; }
+      if (c === "'") inS = false;
+      continue;
+    }
+    if (inD) {
+      cur += c;
+      if (c === '"' && str[i-1] !== '\\') inD = false;
+      continue;
+    }
+    if (c === "'") { inS = true; cur += c; continue; }
+    if (c === '"') { inD = true; cur += c; continue; }
+    if (c === '(') {
+      depth++;
+      if (depth === 1) { started = true; cur = ''; continue; }
+    }
+    if (c === ')') {
+      depth--;
+      if (depth === 0 && started) { tuples.push(cur); started = false; continue; }
+    }
+    if (started) cur += c;
+  }
+  return tuples;
+}
+
+// Parse a single SQL literal field into a JS value
+function parseSQLValue(raw, autoDate) {
+  const v = raw.trim();
+  if (/^NULL$/i.test(v)) return { js: 'null' };
+  if (/^-?\d+(\.\d+)?$/.test(v)) return { js: v };
+  if (/^'(.*)'$/s.test(v)) {
+    let inner = v.slice(1, -1).replace(/''/g, "'");
+    const trimmedInner = inner.trim();
+    if (/^[\[{]/.test(trimmedInner)) {
+      try {
+        const parsed = JSON.parse(trimmedInner);
+        return { js: jsonToJS(parsed, autoDate) };
+      } catch (e) {
+        // fall through to plain string
+      }
+    }
+    if (autoDate && /^\d{4}-\d{2}-\d{2}$/.test(inner)) {
+      return { js: `new Date("${inner}")` };
+    }
+    return { js: JSON.stringify(inner) };
+  }
+  return { js: JSON.stringify(v) };
+}
+
+// Convert parsed JSON value (array/object/primitive) into pretty JS source, converting date-like fields
+function jsonToJS(value, autoDate, indent = 0) {
+  const pad = '  '.repeat(indent);
+  const padIn = '  '.repeat(indent + 1);
+  if (Array.isArray(value)) {
+    if (value.length === 0) return '[]';
+    const items = value.map(v => padIn + jsonToJS(v, autoDate, indent + 1));
+    return `[\n${items.join(',\n')}\n${pad}]`;
+  }
+  if (value !== null && typeof value === 'object') {
+    const keys = Object.keys(value);
+    if (keys.length === 0) return '{}';
+    const lines = keys.map(k => {
+      const keyOut = /^[A-Za-z_$][A-Za-z0-9_$]*$/.test(k) ? k : JSON.stringify(k);
+      const val = value[k];
+      let valOut;
+      if (autoDate && typeof val === 'string' && /^\d{4}-\d{2}-\d{2}(T.*)?$/.test(val) && /date/i.test(k)) {
+        valOut = `new Date("${val}")`;
+      } else if (autoDate && typeof val === 'string' && /^\d{4}-\d{2}-\d{2}$/.test(val)) {
+        valOut = `new Date("${val}")`;
+      } else {
+        valOut = jsonToJS(val, autoDate, indent + 1);
+      }
+      return `${padIn}${keyOut}: ${valOut}`;
+    });
+    return `{\n${lines.join(',\n')}\n${pad}}`;
+  }
+  if (typeof value === 'string') return JSON.stringify(value);
+  if (value === null) return 'null';
+  return String(value);
+}
+
+function convertSQL(sql, opts) {
+  const tableMatch = sql.match(/INSERT\s+INTO\s+([`"\[]?[\w.]+[`"\]]?)\s*\(([\s\S]*?)\)\s*VALUES/i);
+  if (!tableMatch) throw new Error('Không tìm thấy cú pháp "INSERT INTO table (...) VALUES". Kiểm tra lại câu lệnh SQL.');
+
+  let tableName = tableMatch[1].replace(/[`"\[\]]/g, '');
+  const columns = splitTopLevel(tableMatch[2]).map(c => c.replace(/[`"\[\]]/g, '').trim());
+
+  const valuesSection = sql.slice(sql.indexOf(tableMatch[0]) + tableMatch[0].length);
+  const tuples = extractTuples(valuesSection);
+  if (tuples.length === 0) throw new Error('Không tìm thấy giá trị nào sau VALUES.');
+
+  const docs = tuples.map(tuple => {
+    const fields = splitTopLevel(tuple);
+    if (fields.length !== columns.length) {
+      throw new Error(`Số lượng giá trị (${fields.length}) không khớp số cột (${columns.length}) trong dòng: ${tuple.slice(0,80)}...`);
+    }
+    const lines = columns.map((col, i) => {
+      const { js } = parseSQLValue(fields[i], opts.autoDate);
+      const keyOut = opts.prettyKeys && /^[A-Za-z_$][A-Za-z0-9_$]*$/.test(col) ? col : JSON.stringify(col);
+      return `    ${keyOut}: ${js}`;
+    });
+    return `  {\n${lines.join(',\n')}\n  }`;
+  });
+
+  return `db.${tableName}.insertMany([\n${docs.join(',\n')}\n]);`;
+}
+
+/* ---------- CSV mode ---------- */
+
+// RFC4180-ish CSV parser: handles quoted fields (with "" escaping), commas/newlines inside quotes
+function parseCSV(text) {
+  const rows = [];
+  let row = [];
+  let field = '';
+  let inQuotes = false;
+  const src = text.replace(/\r\n/g, '\n');
+  for (let i = 0; i < src.length; i++) {
+    const c = src[i];
+    if (inQuotes) {
+      if (c === '"') {
+        if (src[i + 1] === '"') { field += '"'; i++; }
+        else { inQuotes = false; }
+      } else {
+        field += c;
+      }
+      continue;
+    }
+    if (c === '"') { inQuotes = true; continue; }
+    if (c === ',') { row.push(field); field = ''; continue; }
+    if (c === '\n') { row.push(field); rows.push(row); row = []; field = ''; continue; }
+    field += c;
+  }
+  if (field.length > 0 || row.length > 0) { row.push(field); rows.push(row); }
+  // bỏ các dòng hoàn toàn trống
+  return rows.filter(r => !(r.length === 1 && r[0].trim() === ''));
+}
+
+function parseCSVValue(raw, autoDate) {
+  const v = (raw ?? '').trim();
+  if (v === '' || /^NULL$/i.test(v)) return { js: 'null' };
+  if (/^-?\d+(\.\d+)?$/.test(v)) return { js: v };
+  if (/^(true|false)$/i.test(v)) return { js: v.toLowerCase() };
+  if (/^[\[{]/.test(v)) {
+    try {
+      const parsed = JSON.parse(v);
+      return { js: jsonToJS(parsed, autoDate) };
+    } catch (e) {
+      // không phải JSON hợp lệ, coi như chuỗi thường
+    }
+  }
+  if (autoDate && /^\d{4}-\d{2}-\d{2}$/.test(v)) {
+    return { js: `new Date("${v}")` };
+  }
+  return { js: JSON.stringify(v) };
+}
+
+function convertCSV(text, opts) {
+  const rows = parseCSV(text.trim());
+  if (rows.length < 2) {
+    throw new Error('CSV cần ít nhất 1 dòng tiêu đề (header) và 1 dòng dữ liệu.');
+  }
+  const columns = rows[0].map(c => c.trim());
+  const dataRows = rows.slice(1).filter(r => r.some(cell => cell.trim() !== ''));
+  if (dataRows.length === 0) {
+    throw new Error('Không tìm thấy dòng dữ liệu nào sau dòng tiêu đề.');
+  }
+  const collectionName = (opts.collectionName || '').trim() || 'collection';
+
+  const docs = dataRows.map((fields, idx) => {
+    if (fields.length !== columns.length) {
+      throw new Error(`Dòng dữ liệu ${idx + 2}: số cột (${fields.length}) không khớp số cột tiêu đề (${columns.length}).`);
+    }
+    const lines = columns.map((col, i) => {
+      const { js } = parseCSVValue(fields[i], opts.autoDate);
+      const keyOut = opts.prettyKeys && /^[A-Za-z_$][A-Za-z0-9_$]*$/.test(col) ? col : JSON.stringify(col);
+      return `    ${keyOut}: ${js}`;
+    });
+    return `  {\n${lines.join(',\n')}\n  }`;
+  });
+
+  return `db.${collectionName}.insertMany([\n${docs.join(',\n')}\n]);`;
+}
+
+/* ---------- Simple syntax highlighting for output ---------- */
+function highlight(code) {
+  return code
+    .replace(/&/g, '&amp;').replace(/</g, '&lt;').replace(/>/g, '&gt;')
+    .replace(/(new Date\("[^"]*"\))/g, '<span class="d">$1</span>')
+    .replace(/"(\\.|[^"\\])*"(?=\s*:)/g, m => `<span class="k">${m}</span>`)
+    .replace(/:\s*"(\\.|[^"\\])*"/g, m => {
+      const idx = m.indexOf('"');
+      return m.slice(0, idx) + `<span class="s">${m.slice(idx)}</span>`;
+    })
+    .replace(/\b(-?\d+(\.\d+)?)\b(?=,|\s|$)/g, '<span class="n">$1</span>')
+    .replace(/\bnull\b/g, '<span class="n">null</span>');
+}
+
+function runConvert() {
+  const raw = sampleSQL.value.trim();
+  const autoDate = document.getElementById('autoDate').checked;
+  const prettyKeys = document.getElementById('prettyKeys').checked;
+  const collectionName = document.getElementById('collectionName').value;
+
+  if (!raw) {
+    statusEl.textContent = 'Vui lòng dán câu lệnh SQL hoặc dữ liệu CSV trước.';
+    statusEl.className = 'status bad';
+    return;
+  }
+
+  const isSQL = /INSERT\s+INTO\s+[`"\[]?[\w.]+[`"\]]?\s*\(/i.test(raw);
+
+  try {
+    let result;
+    if (isSQL) {
+      result = convertSQL(raw, { autoDate, prettyKeys });
+      modeBadge.textContent = 'SQL';
+      modeBadge.className = 'mode-badge sql';
+    } else {
+      result = convertCSV(raw, { autoDate, prettyKeys, collectionName });
+      modeBadge.textContent = 'CSV';
+      modeBadge.className = 'mode-badge csv';
+    }
+    const outEl = document.getElementById('output');
+    outEl.innerHTML = highlight(result);
+    outEl.dataset.raw = result;
+    statusEl.textContent = 'Chuyển đổi thành công.';
+    statusEl.className = 'status ok';
+  } catch (e) {
+    const oldEl = document.getElementById('output');
+    const errDiv = document.createElement('div');
+    errDiv.className = 'err';
+    errDiv.id = 'output';
+    errDiv.textContent = '⚠ Lỗi: ' + e.message;
+    oldEl.replaceWith(errDiv);
+    statusEl.textContent = 'Có lỗi xảy ra.';
+    statusEl.className = 'status bad';
+  }
+}
+
+document.getElementById('convertBtn').addEventListener('click', runConvert);
+document.getElementById('copyBtn').addEventListener('click', () => {
+  const raw = document.getElementById('output').dataset.raw || document.getElementById('output').textContent;
+  navigator.clipboard.writeText(raw).then(() => {
+    statusEl.textContent = 'Đã sao chép vào clipboard.';
+    statusEl.className = 'status ok';
+  });
+});
+</script>
+</body>
+</html>
